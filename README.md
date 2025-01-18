@@ -19,7 +19,7 @@ This cooking blog app allows users to browse, upload, and share recipes. Users c
 
 ### How to Run Locally
 1. Clone the repository:
-`git clone https://github.com/your-username/cooking-blog.git`
+`git clone https://github.com/BryanZin123/Forkin-Flavors.git`
 2. Install frontend dependencies:
 `cd frontend && npm install`
 3. Install backend dependencies:
