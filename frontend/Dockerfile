@@ -1,20 +1,21 @@
-# Use official Node.js image as the base image
-FROM node:16
+# Step 1: Build the app
+FROM node:16 AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the container
-COPY package*.json ./
-
-# Install dependencies
+COPY package.json package-lock.json ./
 RUN npm install
 
-# Copy the rest of the app’s files into the container
-COPY . .
+COPY . ./
+RUN npm run build
 
-# Expose the port your Next.js app will run on
+# Step 2: Create the production image
+FROM node:16-slim
+
+WORKDIR /app
+
+COPY --from=builder /app ./
+RUN npm install --production
+
 EXPOSE 3000
-
-# Run the app
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]
