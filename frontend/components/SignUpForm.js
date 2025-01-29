@@ -13,6 +13,11 @@ export default function SignUpForm() {
   async function handleSubmit(e) {
     e.preventDefault();
 
+    if (!email || !username || !password) {
+      setError("All fields are required.");
+      return;
+    }
+
     try {
       const res = await fetch('http://127.0.0.1:8000/api/accounts/register/', {
         method: 'POST',
@@ -32,7 +37,17 @@ export default function SignUpForm() {
         setPassword('');
       } else {
         const data = await res.json();
-        setError(data.detail || 'Something went wrong. Please try again.');
+        
+        // Handle specific errors
+        if (data.email) {
+          setError(`Email error: ${data.email}`);
+        } else if (data.username) {
+          setError(`Username error: ${data.username}`);
+        } else if (data.detail) {
+          setError(data.detail);
+        } else {
+          setError('Something went wrong. Please try again.');
+        }
       }
     } catch (err) {
       setError(`An error occurred: ${err.message}`);
@@ -62,7 +77,7 @@ export default function SignUpForm() {
           <div>
             <label htmlFor="email">Email:</label>
             <input
-              type="text"
+              type="email"
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

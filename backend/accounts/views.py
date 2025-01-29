@@ -2,153 +2,151 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.serializers import ModelSerializer
 from django.contrib.auth.hashers import make_password
 from rest_framework.serializers import ValidationError
 from rest_framework_simplejwt.exceptions import TokenError
+from django.core.mail import send_mail
+from django.contrib.auth.tokens import default_token_generator
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.utils.decorators import decorator_from_middleware
-from django.middleware.csrf import CsrfViewMiddleware
-
-# Apply the CSRF middleware
-csrf_protected = decorator_from_middleware(CsrfViewMiddleware)
-
-@ensure_csrf_cookie
-def set_csrf_cookie(request):
-    return JsonResponse({"message": "CSRF cookie set"})
-
-
-
+### **LOGIN VIEW**
 class LoginView(APIView):
+    permission_classes = [AllowAny]  # Allow login for all users
+
     def post(self, request):
-        username = request.data.get('username')
+        identifier = request.data.get('identifier')  # Can be username or email
         password = request.data.get('password')
-        user = authenticate(username=username, password=password)
-        if user is not None:
+
+        if not identifier or not password:
+            return Response({'detail': 'Username/Email and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if identifier is an email or username
+        user = None
+        if '@' in identifier:
+            try:
+                user = User.objects.get(email=identifier)
+            except User.DoesNotExist:
+                return Response({'detail': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            user = authenticate(username=identifier, password=password)
+
+        # Validate user and password
+        if user and user.check_password(password):
             refresh = RefreshToken.for_user(user)
-            
-            # Create response
+
             response = Response({
                 "detail": "Login successful",
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
             }, status=status.HTTP_200_OK)
 
-            
-
-            # HttpOnly cookies for access & refresh tokens
-            # Access Token cookie
-            response.set_cookie(
-                key='access',
-                value=str(refresh.access_token),
-                httponly=True,
-                secure=True,       # recommended for production (HTTPS)
-                samesite='None'    # or 'Strict' / 'Lax' depending on your needs
-            )
-
-            # Refresh Token cookie
-            response.set_cookie(
-                key='refresh',
-                value=str(refresh),
-                httponly=True,
-                secure=True,
-                samesite='None'
-            )
+            # Set HttpOnly cookies for security
+            response.set_cookie("access", str(refresh.access_token), httponly=True, secure=True, samesite='None')
+            response.set_cookie("refresh", str(refresh), httponly=True, secure=True, samesite='None')
 
             return response
+
         return Response({"detail": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
+
+### **LOGOUT VIEW**
 class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]  
+
     def post(self, request):
         refresh_token = request.data.get('refresh')
         if not refresh_token:
             return Response({"detail": "Refresh token missing."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        print(f"Received refresh token: {refresh_token}")  # Debugging
 
         try:
             token = RefreshToken(refresh_token)
-            token.blacklist()
+            token.blacklist()  # Blacklist the token if blacklisting is enabled
             return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
-        except TokenError as e:
-            # If the token is already blacklisted, still return a successful response.
-            print(f"Token error: {str(e)}")  # Debugging
-            return Response({"detail": "Token already blacklisted."}, status=status.HTTP_200_OK)
+        except TokenError:
+            return Response({"detail": "Invalid or already blacklisted token."}, status=status.HTTP_400_BAD_REQUEST)
 
+
+### **REGISTER VIEW**
 class RegisterSerializer(ModelSerializer):
     class Meta:
         model = User
         fields = ['username', 'email', 'password']
 
     def create(self, validated_data):
-        # If the user didn't provide a username, use the email prefix
-        if not validated_data.get('username'):
-            email = validated_data['email']
-            username_candidate = email.split('@')[0]  # take prefix before '@'
-            validated_data['username'] = username_candidate
-        
-        # Hash the password
-        validated_data['password'] = make_password(validated_data['password'])
+        validated_data['password'] = make_password(validated_data['password'])  # Hash password
         return super().create(validated_data)
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]  
+
     def post(self, request):
-        username = request.data.get('username')
-        email = request.data.get('email')
-        password = request.data.get('password')
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"detail": "User registered successfully"}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validation
-        if User.objects.filter(username=username).exists():
-            raise ValidationError({'username': 'Username already exists.'})
-        if User.objects.filter(email=email).exists():
-            raise ValidationError({'email': 'Email already in use.'})
 
-        # Create user
-        user = User.objects.create(
-            username=username,
-            email=email,
-            password=make_password(password)
-        )
-
-        return Response({"detail": "User registered successfully"}, status=status.HTTP_201_CREATED)
-
+### **USER DATA VIEW**
 class UserDataView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
         return Response({
-            "username": user.username,
-            "email": user.email,
-            "recipes": [
-                {"id": 1, "title": "Roasted Chicken"},
-                {"id": 2, "title": "Chocolate Cake"},
-            ]
+            "username": request.user.username,
+            "email": request.user.email,
+            "recipes": [{"id": 1, "title": "Roasted Chicken"}, {"id": 2, "title": "Chocolate Cake"}]
         })
-    
+
+
+### **DASHBOARD VIEW**
 class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        data = {
-            "username": user.username,
-            "email": user.email,
-            "recipes": [
-                {"id": 1, "title": "Roasted Chicken"},
-                {"id": 2, "title": "Vegan Pasta"},
-            ],
-        }
-        return Response(data)
-from django.http import JsonResponse
+        return Response({
+            "username": request.user.username,
+            "email": request.user.email,
+            "recipes": [{"id": 1, "title": "Roasted Chicken"}, {"id": 2, "title": "Vegan Pasta"}],
+        })
 
-class PasswordResetView(APIView):
-    def post(self, request, *args, **kwargs):
-        print("CSRF token from headers:", request.headers.get("X-CSRFToken"))
-        print("CSRF cookie:", request.COOKIES.get("csrftoken"))
-        # Process the reset logic
+
+### **PASSWORD RESET REQUEST**
+@method_decorator(csrf_exempt, name="dispatch")
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]  # Allow unauthenticated users to request a reset
+
+    def post(self, request):
+        email = request.data.get("email")
+        if not email:
+            return Response({"detail": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email=email).first()  # ✅ Prevent MultipleObjectsReturned error
+
+        if not user:
+            return Response({"detail": "User with this email does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generate password reset token
+        reset_token = default_token_generator.make_token(user)
+        uid = user.pk
+        reset_link = f"http://127.0.0.1:3000/reset-password/{uid}/{reset_token}/"
+
+
+        # Send email
+        try:
+            send_mail(
+                "Password Reset Request",
+                f"Click the following link to reset your password: {reset_link}",
+                "no-reply@forkinflavors.com",
+                [email],
+                fail_silently=False,
+            )
+            return Response({"detail": "Password reset email sent"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"Error sending email: {str(e)}")  # Debugging
+            return Response({"detail": "Error sending reset email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

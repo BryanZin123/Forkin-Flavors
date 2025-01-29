@@ -70,17 +70,20 @@ export default function Dashboard() {
 
   async function handleLogout() {
     const refreshToken = localStorage.getItem('refresh');
-    if (!refreshToken) {
-        console.error('No refresh token found.');
+    const accessToken = localStorage.getItem('access'); // Get access token
+
+    if (!refreshToken || !accessToken) {
+        console.error('No tokens found.');
         return;
     }
 
-    console.log('Sending refresh token:', refreshToken); // Debugging
+    console.log('Sending logout request with refresh token:', refreshToken); // Debugging
 
     const res = await fetch('http://127.0.0.1:8000/api/accounts/logout/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}` // ✅ Send the access token
         },
         body: JSON.stringify({ refresh: refreshToken }),
     });
@@ -91,31 +94,37 @@ export default function Dashboard() {
         localStorage.removeItem('refresh');
         window.location.href = '/login'; // Redirect to login page
     } else {
-        const error = await res.json();
-        console.error('Logout failed:', error.detail || error);
+        const errorData = await res.json();
+        console.error('Logout failed:', errorData.detail || errorData);
     }
 }
 
 
-async function handlePasswordReset() {
-  try {
-    console.log('All cookies:', document.cookie); // Log all cookies
+  async function handlePasswordReset() {
+    try {
+      const email = userData?.email; // Assuming userData contains the email
+      if (!email) {
+        throw new Error('User email not found.');
+      }
 
-    const csrfToken = document.cookie
-      .split('; ')
-      .find((row) => row.startsWith('csrftoken='))
-      ?.split('=')[1];
+      const res = await fetch('http://127.0.0.1:8000/api/accounts/password-reset/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
 
-    console.log('CSRF token retrieved:', csrfToken);
-
-    if (!csrfToken) {
-      throw new Error('CSRF token not found. Please refresh the page and try again.');
+      if (res.ok) {
+        setSuccessMessage('Password reset email sent successfully.');
+      } else {
+        throw new Error('Failed to send reset email.');
+      }
+    } catch (err) {
+      setError(err.message);
+      console.error('Error resetting password:', err.message);
     }
-  } catch (err) {
-    console.error('Error retrieving CSRF token:', err.message);
   }
-}
-
 
   if (error) {
     return <div>Error: {error}</div>;
