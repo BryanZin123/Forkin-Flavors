@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router"; // For navigation in Next.js
 
+
 export default function SignUpForm() {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');

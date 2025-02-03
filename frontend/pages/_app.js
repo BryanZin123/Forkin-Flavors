@@ -1,5 +1,6 @@
-import 'bootstrap/dist/css/bootstrap.min.css'; // Bootstrap styles
-import { CssBaseline } from '@mui/material'; // MUI global styles
+import React from 'react';
+import CssBaseline from '@mui/material/CssBaseline';
+import 'bootstrap/dist/css/bootstrap.min.css';
 
 function MyApp({ Component, pageProps }) {
   return (
